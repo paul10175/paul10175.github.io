@@ -1,0 +1,296 @@
+---
+title: "Final Project"
+author: "Paul Hendriksen"
+date: "5/2/2019"
+output: 
+  html_document:
+    theme: sandstone
+    highlight: tango
+---
+
+#CLIMATE CHANGE
+***
+
+![](/Users/paulhendriksen/climate1.jpg){width=100%}
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Intro
+With a growing population the amount of resources used increases dramatically. So we will be trying using our data science skills to look at the increase of population and carbon consumption and see if they are correlated. While also looking at some of the effects this may have. 
+
+##Table of contents
+
+First of all we need to import all the libraries we will need to perform our experiment.
+If you are not familiar on how to install packages the website https://www.r-bloggers.com/installing-r-packages/ is very imformative on this matter 
+```{r load_data, message=FALSE}
+library(tidyverse)
+library(plotly)
+library(rvest)
+library(grid)
+library(gridExtra)
+library(png)
+library(randomForest)
+library(DT)
+```
+
+###Creating our hypothesis
+Before we create our hypothesis it is very important that you have a very good grasp of Hypothesis Testing, Central Limit Theorem, Law of Large Numbers etc!!. To understand the fundementals of these subjects please visit a class webpage created by Dr. Hector Bravo from the University of Maryland at http://www.hcbravo.org/IntroDataSci/bookdown-notes/linear-regression.html. 
+
+Now that you grasp of how hypotheis testing works we can create our hypothesis. 
+Our null hypothesis that we will denote as $H_n$ will be no relationship between population and Year. Clearly we know that there will be some relationship between these two but we will use it as a building block.
+
+###Ataining the data
+-Before we can do any calculations in terms of our null hypothesis we need to find reliable data relavant to the topic. 
+-The first dataset we found on the topic has the data table embedded in the html of the webpage. This is actually convienent because R has built in functions that let us extract the data from the table. 
+-Also, for this part I would highly reccomend using chrome as it makes for a much easier time. 
+-Once you found the site with the data go to the top right corner of the screen and click on the three vertical dots. Then scroll down to More Tools, and go to developer tools. After you have done all that you should see at the right side of the screen some HTMl code. This is where we can find the css selector so we can extract the data to R. This can be tricky to find sometimes but it helps if you use the find tool by searching "table" or something along those lines
+```{r, fig.asp=0.50, width = '100%'}
+img <- readPNG("/Users/paulhendriksen/Downloads/pic.png")
+grid.raster(img)
+```
+
+Ok so now we have found the table, we need to use the css selector as the parameter to our html_node() function call. This is because it gives R essentially a destination in the webpage to procure the imformation. A css selector for any table should be in the form <table, css selector, name>. However, the type of symbol you use in the html_node() function before the name matters. For example, we use . before "table-condensed", but if instead of "table class" we had "table id" we would have used #. There are many css selectors that we do not have time to cover now, so to see a full list of all the selectors go to https://www.w3schools.com/cssref/css_selectors.asp.
+```{r}
+url <- "https://www.worldometers.info/world-population/world-population-by-year/"
+
+dl_tab <- url %>%
+  read_html() %>%
+  html_node(".table-condensed") %>%
+  html_table()
+
+colnames(dl_tab)[2] <- "Population"
+colnames(dl_tab)[5] <- "Density"
+colnames(dl_tab)[6] <- "UrbanPopulation"
+colnames(dl_tab)[7] <- "UrbanPopulationPercentage"
+datatable(dl_tab, rownames=TRUE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+
+-Before we go any further i feel i need to explain some of the basic functionalities of R just so everyone is on the same page. We will explain the %>% symbol we used in the previous example and a few basic functions in R such as filter(), group_by() and select(). 
+-A quick way to understand %>% also called a pipeline is to think of it as such. Any code that follows a %>% takes the previous code as its first parameter. It will make more sense when we go through a few examples. 
+-Lets say we want to group our data set above by density and then select just the first two columns.
+```{r warning=FALSE}
+with_pipeline <- dl_tab %>% 
+  group_by(Density) %>% 
+  select(1,2)
+
+without_pipeline <- select(group_by(dl_tab, Density), 1,2)
+datatable(with_pipeline, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+datatable(without_pipeline, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+-Lets show one more example using the filter combined with the select function. We will filter out all the datapoints with a netchange amount less than 80,000
+and then just display the year and population.
+```{r}
+with_pipeline <- dl_tab %>% 
+  filter(NetChange >= 80000) %>% 
+  select(1,2)
+
+without_pipeline <- select(filter(dl_tab, NetChange >= 80000), 1, 2)
+datatable(without_pipeline, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+datatable(with_pipeline, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+
+R is a very powerful tool for manipulating datasets, so if you want to sharpen your skills with R. Stephen Locke wrote a free book that is very thourogh and you can view the pdf here https://itsalocke.com/files/DataManipulationinR.pdf.
+
+-Now thats out of the way lets get back to our original dataset.
+-So now that we have our table all we can do things such as plotting, calculations etc.
+```{r, out.width= '100%'}
+population <- dl_tab %>% 
+  ggplot(aes(x=Year, y=Population)) + 
+  geom_point()
+
+population + ggtitle("Population Vs. Year")
+```
+
+-As one can see this plot is very ugly since we have so many data points. Now we know with this plot here we could not do much with, so we will learn how to clean this data and get it into format that will allow us to view it easier.  
+
+-First we will only select the two columns we are really interested in which is year and population. Then since we only interested in population growth after 1958 we filter out all years that are less than 1958. Lastly, we type_convert the data frame so it allows for easier calculations when doing our linear regressions. 
+```{r}
+revised_population <- dl_tab %>% 
+  select(1, 2) %>% 
+  filter(Year >= 1958) %>% 
+  type_convert()
+
+datatable(revised_population, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+
+
+Ok now we tidied up our data, and we can try to plot it and see if it looks any better than our other plot. Also its important to note that sample_n takes a randon n samples from the data set. We do this because it makes the plot much easier to view. 
+```{r, out.width = "100%"}
+revised_population_plot <- revised_population %>% 
+  sample_n(15) %>% 
+  ggplot(aes(x=Year, y=Population)) + 
+    geom_point() + 
+    geom_smooth(method = lm)
+
+revised_population_plot + ggtitle("Population Vs. Year")
+```
+As we can see now that our data is clean, there is a very strong correlation that there is a linear relationship between year and population. 
+
+Now to illustrate the real power of poperly cleaning data we will display the two graphs side by side.
+```{r, align = 'center', out.width="100%"}
+grid.arrange(population, revised_population_plot, nrow = 1)
+```
+
+-Now we use the lm function to give us a linear regression in the form $Y = \beta_0 + \beta_1X$
+-It is important to note that we can look at the graph and see that it is a good fit for a linear regression. This is because if we plotted the residuals vs fitted values we would see that they would hover around 0 and that is what we want. 
+```{r}
+regres <- lm(Population~Year, revised_population)
+broom::tidy(regres)
+```
+-So what does this table tell us? The estimate for the Intercept is the just the y-intercept for our graph. And for the scope of this class we will not be using the rest of that row. Now looking at the second row we see 80498817 for the estimate. When dealing with multiple linear regressions we usually say that holding everything else this variable increases or decreases by this much on average. However, when dealing with a simple single linear regresion it is easier to just think of it as the slope of the plot. Thus, on average the population grows by 80498817 each year. WHich is actually astonishing to think that every year this planet needs to support an extra 80 million peolpe. Also looking at our p-value in the Year row tells us the statistic of if we should accept or reject or null hypothesis. Usually if the value is less than 0.05 we reject the null, otherwise we fail to reject the null. Since this p-value is essentially 0 we certainly reject the null hypothesis of no relationship. 
+-Now that we have all the imformation for population we will scrap some data from the NOAA for levels of carbon dioxide in the air.
+
+-Scraping this data is a little different from the way we got the data on population. Since this data is not already set up for us in an html table we have to work a little harder to tidy this up, but not too much. 
+
+
+Step one: Download the data to your local machine, usually repetable websites will give you this option. 
+Step two: Import the data into Excel. We do this because we want to get it into CSV form so it is easily readable in R, this could have been done multiple ways. 
+Step three: Now save the CSV file back onto your local machine.
+Step four: Now we can use the same method to read the csv file in R
+
+```{r}
+myData <- read_csv(file="/Users/paulhendriksen/Downloads/Book3.csv")
+colnames(myData)[1] <- "Year"
+colnames(myData)[5] <- "carbonLevels"
+newData <- select(myData, 1, 5)
+
+datatable(newData, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+-If you are still having trouble there is a very good walkthrough on this website https://support.geekseller.com/knowledgebase/convert-txt-file-csv/ created by GeekSeller
+
+-Now that we have a pretty good setup of carbon levels we can plot them vs year to see the how well they match up with our population increase. 
+
+-Also since there are multiple data points for each year lets take the average of each year. 
+-Before we go on i would like to take some time focusing on a different type of plot which is very important in terms of looking at the distribution. This is called the boxplot, and you can see it allows us to view the outliers on the opposite ends of each plot, while also letting us see where the median lies. 
+```{r}
+newData %>% 
+  sample_n(30) %>% 
+  ggplot(aes(x = Year, y = carbonLevels, group=Year)) + 
+  geom_boxplot()
+```
+-Viewing this graph we can see that a boxplot is not the best fit for this data because the level of carbons per years distribution is not that great. However, it does show us that there is linear growth and that a scatter plot would work very nice for this data. 
+
+-Next since we are not using a boxplot we need to calculate the means ourselves and save it in our dataframe. 
+```{r}
+newData <- newData %>% 
+  group_by(Year) %>% 
+  summarize(meanCarbon = mean(carbonLevels))
+head(newData)
+```
+
+-Now we can just plot the mean vs year as we would any other plot. 
+```{r, out.width = "100%"}
+plot <- newData %>% 
+  ggplot(aes(x = Year, y = meanCarbon)) +
+    geom_point() + 
+    geom_smooth(method = lm)
+
+plot
+```
+-As you can see there is a very strong relationship between the growth in population and carbon emissions. 
+
+-Another very important concept in data science is being able to take two data frames and combine them on a certain attribute. We will use the concept of the merge command which is essentially the same concept as the join command in SQL. Essentially what we are doing in this example is joining our two data frames that we created earlier by the column Year. Since we do not have any NA's in our data frame we dont have to worry about that but if you do visit https://www.rdocumentation.org/packages/base/versions/3.6.0/topics/merge and they explain the merge function and how to deal with missing data. 
+
+```{r}
+merged_df <- merge(x = dl_tab, y = newData, by = "Year")
+
+merged_df <- merged_df %>% 
+  select(1, 2, 8) %>% 
+  type_convert()
+
+datatable(merged_df, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+
+```{r, out.width = "100%"}
+popVsCarbon <- merged_df %>% 
+  sample_n(30) %>% 
+  ggplot(aes(x=Population, meanCarbon)) +
+  geom_point() + 
+  geom_smooth(method = lm)
+
+popVsCarbon + theme(axis.text.x = element_text(angle=90))
+```
+
+Now we can use the idea of a linear regression to check the null hypothesis of no relationship between population growth and carbon dioxide levels. 
+We need to determine if this set is a good fit for a linear regression. 
+```{r}
+regresion <- lm(meanCarbon~Population, data = merged_df)
+broom::tidy(regresion)
+```
+- Looking at our regression table we can reject the null hypothesis of no relationship between meanCarbon and population. Which makes sense because as there are more people on this planet there are more people consuming energy. 
+
+-Now that we have showed that there is a very strong correlation between population growth and increased carbon emisions. Now let us use our new data science tools to try and understand some of the negative effects that come with the increased carbon use. 
+-So what would be the main effects of increased carbon consumption? First, and foremost would be the increased global temparature. This might not sound that bad to people, but having the planet heat up a few degrees is catastrophic. 
+-At home exercise 1: 
+  Find a reputable source of data for global temperatures, and see if you can scrap and clean the data into R.
+  
+-We will start by showing the number of natural disasters over the past 100 years. If you felt comfortable with the way we scrapped the data from the two other datasets than i highly recommend you try this one out yourself before you look at the given code. The data is on the website https://ourworldindata.org/natural-disasters and is already in csv format for you 
+
+```{r}
+natural_disasters <- read_csv(file = "/Users/paulhendriksen/Downloads/number-of-natural-disaster-events.csv")
+colnames(natural_disasters)[4] <- "NumberOfDisasters"
+natural_disasters <- natural_disasters[, -2]
+datatable(natural_disasters, rownames=FALSE, filter = "top", options = list(pageLength = 5, scrollX=T))
+```
+
+Ok excellent we got the information on the number of natural disasters over the years so lets see if it follows a similiar trend to that of the population and carbon emissions. 
+```{r, out.width = "100%"}
+natural_disasters_plot <- natural_disasters  %>% 
+  group_by(Entity) %>% 
+  ggplot(aes(x=Year, y=NumberOfDisasters, color = Entity)) +
+  geom_point() + 
+  geom_smooth(method =lm)
+
+natural_disasters_plot
+```
+
+Ok so this graph is not bad as it shows us the distribution, but using one simple method called facet_grid we can break these into individual plots 
+```{r, out.width = "100%"}
+natural_disasters_plot <- natural_disasters  %>% 
+  filter(Entity != "Impact") %>% 
+  group_by(Entity) %>% 
+  ggplot(aes(x=Year, y=NumberOfDisasters, color = Entity)) +
+  facet_wrap(~Entity, nrow = 2) +
+  geom_point() + 
+  geom_smooth(method =lm)
+
+natural_disasters_plot + theme(axis.text.x = element_text(angle=90))
+```
+Thus using this we can clearly see that natural disasters are rising just as scientist said they would. Obviously floods, and extreme weather are experiencing the greatest spike. However, as data scientist we need to be able to evaluate the data and determine if there is a trend.  
+
+-Now lets try and use some basic Machine Learning techniques to see if we can estimate the number of natural disasters in the years to come. 
+-First we need to just create a data frame of just the number of natural disasters
+```{r}
+total <- natural_disasters %>% 
+  filter(Entity == "All natural disasters")
+head(total)
+
+```
+
+I feel that to finish this whole thing off we should show the gravity of this situation with one last plot, and evaluate the difference in average number of disasters between 1925-1950 , and 1994-2019
+```{r}
+total_one <- total %>% 
+  filter(Year >= 1925 & Year <=1950) %>% 
+  summarize(mean(NumberOfDisasters))
+
+total_two <- total %>% 
+  filter(Year >= 1993 & Year <= 2018) %>% 
+  summarize(mean(NumberOfDisasters))
+
+total_one
+total_two
+```
+Shockingly you can see that there was over 320 natural disasters in the years 1925-1950 to 1994-2018. Here is a bar plot that does a very good job of showing the distribution. 
+```{r, out.width="100%"}
+total_plot <- total %>% 
+  filter(Year >= 1925) %>% 
+  ggplot(aes(x=Year, y=NumberOfDisasters)) +
+  geom_bar(stat = "identity")
+
+total_plot 
+```
+
+Now, one last point to drive this point home is by looking at the average number of disasters for a given 25 year period. 
